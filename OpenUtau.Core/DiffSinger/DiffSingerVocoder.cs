@@ -6,7 +6,7 @@ namespace OpenUtau.Core.DiffSinger {
     public class DsVocoder {
         public string Location;
         public DsVocoderConfig config;
-        public InferenceSession session;
+        public IOnnxInferenceSession session;
 
         //通过名称获取声码器
         public DsVocoder(string name) {
@@ -16,12 +16,17 @@ namespace OpenUtau.Core.DiffSinger {
                 config = Core.Yaml.DefaultDeserializer.Deserialize<DsVocoderConfig>(
                     File.ReadAllText(Path.Combine(Location, "vocoder.yaml"),
                         System.Text.Encoding.UTF8));
-                model = File.ReadAllBytes(Path.Combine(Location, config.model));
+                
+                if (config.model.StartsWith("http")) {
+                    session = Onnx.getRemoteInferenceSession(config.model);
+                } else {
+                    model = File.ReadAllBytes(Path.Combine(Location, config.model));
+                    session = Onnx.getLocalInferenceSession(model);
+                }
             }
             catch (Exception ex) {
                 throw new Exception($"Error loading vocoder {name}. Please download vocoder from https://github.com/xunmengshe/OpenUtau/wiki/Vocoders");
             }
-            session = Onnx.getInferenceSession(model);
         }
 
         public float frameMs() {

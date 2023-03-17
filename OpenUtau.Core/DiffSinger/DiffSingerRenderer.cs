@@ -161,7 +161,7 @@ namespace OpenUtau.Core.DiffSinger {
                 //get speaker curves
                 NDArray spkCurves = np.zeros<float>(totalFrames, speakers.Count);
                 foreach(var curve in phrase.curves) {
-                    if(IsVoiceColorCurve(curve.Item1,out int subBankId)) {
+                    if(IsVoiceColorCurve(curve.Item1,out int subBankId) && subBankId < singer.Subbanks.Count) {
                         var spkId = speakers.IndexOf(singer.Subbanks[subBankId].Suffix);
                         spkCurves[":", spkId] = DiffSingerUtils.SampleCurve(phrase, curve.Item2, 0, 
                             frameMs, totalFrames, headFrames, tailFrames, x => x * 0.01f)
@@ -218,7 +218,7 @@ namespace OpenUtau.Core.DiffSinger {
 
             Tensor<float> mel;
             var acousticOutputs = singer.getAcousticSession().Run(acousticInputs);
-            mel = acousticOutputs.First().AsTensor<float>().Clone();
+            mel = acousticOutputs.Clone();
             
             //vocoder
             //waveform = session.run(['waveform'], {'mel': mel, 'f0': f0})[0]
@@ -226,9 +226,9 @@ namespace OpenUtau.Core.DiffSinger {
             vocoderInputs.Add(NamedOnnxValue.CreateFromTensor("mel", mel));
             vocoderInputs.Add(NamedOnnxValue.CreateFromTensor("f0",f0tensor));
             float[] samples;
-            var vocoderOutputs = vocoder.session.Run(vocoderInputs);
-            samples = vocoderOutputs.First().AsTensor<float>().ToArray();
-            return samples;
+            var vocoderOutputs = vocoder.session.Run(vocoderInputs).ToArray();
+
+            return vocoderOutputs;
         }
 
 
