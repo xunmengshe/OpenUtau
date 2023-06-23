@@ -37,7 +37,7 @@ namespace OpenUtau.Core.DiffSinger {
         List<USubbank> subbanks = new List<USubbank>();
         public List<string> phonemes = new List<string>();
         public DsConfig dsConfig;
-        public InferenceSession acousticSession = null;
+        public IOnnxInferenceSession acousticSession = null;
         public DsVocoder vocoder = null;
         public NDArray speakerEmbeds = null;
         
@@ -105,11 +105,17 @@ namespace OpenUtau.Core.DiffSinger {
                 : File.ReadAllBytes(Portrait);
         }
 
-        public InferenceSession getAcousticSession() {
+        public IOnnxInferenceSession getAcousticSession() {
+            // 如果是 http 开头的, 则使用 http 接口
             if (acousticSession is null) {
-                var acousticModel = File.ReadAllBytes(Path.Combine(Location, dsConfig.acoustic));
-                acousticSession = Onnx.getInferenceSession(acousticModel);
+                if (dsConfig.acoustic.StartsWith("http")) {
+                    acousticSession = Onnx.getRemoteInferenceSession(dsConfig.acoustic);
+                } else {
+                    var acousticModel = File.ReadAllBytes(Path.Combine(Location, dsConfig.acoustic));
+                    acousticSession = Onnx.getLocalInferenceSession(acousticModel);
+                }
             }
+
             return acousticSession;
         }
 
