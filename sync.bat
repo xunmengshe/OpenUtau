@@ -1,0 +1,1 @@
+copy MonophonePhonemizer\bin\Debug\net6.0\MonophonePhonemizer* OpenUtau\bin\Debug\net6.0-windows\Plugins\
