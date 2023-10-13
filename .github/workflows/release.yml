@@ -32,13 +32,16 @@ jobs:
       with:
         version: ${{ inputs.version }}
         csproj-files: "OpenUtau/*.csproj"
-
+        
+    - name: check csproj
+      run: cat OpenUtau/OpenUtau.csproj
+      
     - name: restore x64
       run: dotnet restore OpenUtau -r ${{ matrix.os.arch }}
 
     - name: build x64
       run: dotnet publish OpenUtau -c Release -r ${{ matrix.os.arch }} --self-contained true -o bin/${{ matrix.os.arch }}
-
+    
     - name: add openutau.plugins.builtin (windows)
       if: ${{ matrix.os.arch == 'win-x64' }}
       run: copy OpenUtau.Plugin.Builtin\bin\Release\netstandard2.1\OpenUtau.Plugin.Builtin.dll -Destination bin\${{ matrix.os.arch }}
