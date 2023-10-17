@@ -46,6 +46,18 @@ jobs:
     - name: add openutau.plugins.builtin (macos and linux)
       if: ${{ matrix.os.arch == 'osx-x64' || matrix.os.arch == 'linux-x64' }}
       run: cp OpenUtau.Plugin.Builtin/bin/Release/netstandard2.1/OpenUtau.Plugin.Builtin.dll bin/${{ matrix.os.arch }}
+    
+    - name: build macos app bundle
+      if: ${{ matrix.os.arch == 'osx-x64' }}
+      run: dotnet msbuild OpenUtau -t:BundleApp -p:Configuration=Release -p:RuntimeIdentifier=${{ matrix.os.arch }} -p:UseAppHost=true -p:OutputPath=../bin/appbundle/${{ matrix.os.arch }}/
+    
+    - name: copy macos app bundle icon
+      if: ${{ matrix.os.arch == 'osx-x64' }}
+      run: cp OpenUtau/Assets/OpenUtau.icns ./bin/appbundle/${{ matrix.os.arch }}/publish/OpenUtau.app/Contents/Resources/
+    
+    - name: compress macos app bundle
+      if: ${{ matrix.os.arch == 'osx-x64' }}
+      run: 7z a OpenUtau-${{ matrix.os.arch }}-${{ inputs.version }}-AppBundle.zip ./bin/appbundle/${{ matrix.os.arch }}/publish/OpenUtau.app
 
     #手动添加directml.dll的临时方案
     - name: add directml.dll (windows)
@@ -88,6 +100,13 @@ jobs:
       with:
         name: OpenUtau-${{ matrix.os.arch }}-${{ inputs.version }}.zip
         path: OpenUtau-${{ matrix.os.arch }}-${{ inputs.version }}.zip
+    
+    - name: Upload artifact x64 AppBundle
+      if: ${{ matrix.os.arch == 'osx-x64' }}
+      uses: actions/upload-artifact@v1.0.0
+      with:
+        name: OpenUtau-${{ matrix.os.arch }}-${{ inputs.version }}-AppBundle.zip
+        path: OpenUtau-${{ matrix.os.arch }}-${{ inputs.version }}-AppBundle.zip
         
     - name: Upload artifact x64 DiffsingerPack
       if: ${{ matrix.os.arch == 'win-x64' }}
@@ -103,6 +122,14 @@ jobs:
         tag_name: ${{ inputs.version }}
         files: |
           OpenUtau-${{ matrix.os.arch }}-${{ inputs.version }}.zip
+    
+    - name: Create release and upload artifact AppBundle
+      if: ${{ inputs.create-release && matrix.os.arch == 'osx-x64' }}
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ inputs.version }}
+        files: |
+          OpenUtau-${{ matrix.os.arch }}-${{ inputs.version }}-AppBundle.zip
     
     - name: Create release and upload artifact DiffsingerPack
       if: ${{ inputs.create-release && matrix.os.arch == 'win-x64' }}
