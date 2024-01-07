@@ -14,7 +14,7 @@ namespace OpenUtau.Core.DiffSinger {
             var g2ps = new List<IG2p>();
             // Load dictionary from singer folder.
             string file = Path.Combine(rootPath, "dsdict.yaml");
-            string file_jp = Path.Combine(rootPath, "dsdict-jp.yaml");
+            string file_jp = Path.Combine(rootPath, "dsdict-ja.yaml");
             if (File.Exists(file_jp)) {
                 try {
                     g2ps.Add(G2pDictionary.NewBuilder().Load(File.ReadAllText(file_jp)).Build());
