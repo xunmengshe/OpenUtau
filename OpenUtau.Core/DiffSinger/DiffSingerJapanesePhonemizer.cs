@@ -31,23 +31,24 @@ namespace OpenUtau.Core.DiffSinger {
             return new G2pFallbacks(g2ps.ToArray());
         }
 
-        protected override string[] Romanize(IEnumerable<string> lyrics) {
-            var lyricsArray = lyrics.ToArray();
-            var hiraganaLyrics = String.Join(" ", lyricsArray
-                .Where(IsHiragana));
-            var pinyinResult = WanaKana.ToRomaji(hiraganaLyrics).ToLower().Split();
-            var pinyinIndex = 0;
-            for (int i = 0; i < lyricsArray.Length; i++) {
-                if (IsHiragana(lyricsArray[i])) {
-                    lyricsArray[i] = pinyinResult[pinyinIndex];
-                    pinyinIndex++;
-                }
-            }
-            return lyricsArray;
-        }
+        //假名罗马化
+        // protected override string[] Romanize(IEnumerable<string> lyrics) {
+        //     var lyricsArray = lyrics.ToArray();
+        //     var hiraganaLyrics = String.Join(" ", lyricsArray
+        //         .Where(IsHiragana));
+        //     var pinyinResult = WanaKana.ToRomaji(hiraganaLyrics).ToLower().Split();
+        //     var pinyinIndex = 0;
+        //     for (int i = 0; i < lyricsArray.Length; i++) {
+        //         if (IsHiragana(lyricsArray[i])) {
+        //             lyricsArray[i] = pinyinResult[pinyinIndex];
+        //             pinyinIndex++;
+        //         }
+        //     }
+        //     return lyricsArray;
+        // }
 
-        public static bool IsHiragana(string lyric) {
-            return lyric.Length <= 2 && Regex.IsMatch(lyric, "[ぁ-んァ-ヴ]");
-        }
+        // public static bool IsHiragana(string lyric) {
+        //     return lyric.Length <= 2 && Regex.IsMatch(lyric, "[ぁ-んァ-ヴ]");
+        // }
     }
 }
