@@ -69,7 +69,7 @@ jobs:
     - name: download vocoder
       uses: carlosperate/download-file-action@v1.0.3
       with:
-        file-url: https://github.com/xunmengshe/OpenUtau/releases/download/0.0.0.0/nsf_hifigan.oudep
+        file-url: https://github.com/xunmengshe/OpenUtau/releases/download/0.0.0.0/nsf_hifigan-2024.02.oudep
         file-name: nsf_hifigan.oudep
         location: ./
         
