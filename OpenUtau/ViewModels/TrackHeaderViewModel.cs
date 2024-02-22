@@ -7,7 +7,9 @@ using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.Styling;
 using OpenUtau.Api;
 using OpenUtau.App.Views;
 using OpenUtau.Core;
@@ -31,9 +33,12 @@ namespace OpenUtau.App.ViewModels {
         public IReadOnlyList<MenuItemViewModel>? RenderersMenuItems { get; set; }
         public ReactiveCommand<string, Unit> SelectRendererCommand { get; }
         [Reactive] public string TrackName { get; set; } = string.Empty;
+        [Reactive] public SolidColorBrush TrackAccentColor { get; set; } = ThemeManager.GetTrackColor("Blue").AccentColor;
+        [Reactive] public TrackColor TrackColor { get; set; } = ThemeManager.GetTrackColor("Blue");
         [Reactive] public double Volume { get; set; }
         [Reactive] public double Pan { get; set; }
         [Reactive] public bool Mute { get; set; }
+        [Reactive] public bool Muted { get; set; }
         [Reactive] public bool Solo { get; set; }
         [Reactive] public Bitmap? Avatar { get; set; }
 
@@ -71,6 +76,7 @@ namespace OpenUtau.App.ViewModels {
                         };
                         DocManager.Inst.ExecuteCmd(new TrackChangeRenderSettingCommand(DocManager.Inst.Project, track, settings));
                     }
+                    DocManager.Inst.ExecuteCmd(new VoiceColorRemappingNotification(track.TrackNo, true));
                     DocManager.Inst.EndUndoGroup();
                     if (!string.IsNullOrEmpty(singer?.Id) && singer.Found) {
                         Preferences.Default.RecentSingers.Remove(singer.Id);
@@ -81,6 +87,7 @@ namespace OpenUtau.App.ViewModels {
                         }
                     }
                     Preferences.Save();
+                    MessageBus.Current.SendMessage(new PianorollRefreshEvent("Part"));
                 }
                 this.RaisePropertyChanged(nameof(Singer));
                 this.RaisePropertyChanged(nameof(Renderer));
@@ -128,18 +135,19 @@ namespace OpenUtau.App.ViewModels {
             });
 
             TrackName = track.TrackName;
+            TrackAccentColor = ThemeManager.GetTrackColor(track.TrackColor).AccentColor;
+            TrackColor = Preferences.Default.UseTrackColor
+                ? ThemeManager.GetTrackColor(track.TrackColor)
+                : ThemeManager.GetTrackColor("Blue");
             Volume = track.Volume;
             Pan = track.Pan;
             Mute = track.Mute;
+            Muted = track.Muted;
             Solo = track.Solo;
-            this.WhenAnyValue(x => x.track.TrackName)
-                .Subscribe(trackName => {
-                    TrackName = trackName;
-                });
             this.WhenAnyValue(x => x.Volume)
                 .Subscribe(volume => {
                     track.Volume = volume;
-                    DocManager.Inst.ExecuteCmd(new VolumeChangeNotification(track.TrackNo, Mute ? -24 : volume));
+                    DocManager.Inst.ExecuteCmd(new VolumeChangeNotification(track.TrackNo, Muted ? -24 : volume));
                 });
             this.WhenAnyValue(x => x.Pan)
                 .Subscribe(pan => {
@@ -149,7 +157,11 @@ namespace OpenUtau.App.ViewModels {
             this.WhenAnyValue(x => x.Mute)
                 .Subscribe(mute => {
                     track.Mute = mute;
-                    DocManager.Inst.ExecuteCmd(new VolumeChangeNotification(track.TrackNo, mute ? -24 : Volume));
+                });
+            this.WhenAnyValue(x => x.Muted)
+                .Subscribe(muted => {
+                    track.Muted = muted;
+                    DocManager.Inst.ExecuteCmd(new VolumeChangeNotification(track.TrackNo, muted ? -24 : Volume));
                 });
             this.WhenAnyValue(x => x.Solo)
                 .Subscribe(solo => {
@@ -160,7 +172,61 @@ namespace OpenUtau.App.ViewModels {
         }
 
         public void ToggleSolo() {
-            MessageBus.Current.SendMessage(new TracksSoloEvent(track.TrackNo, !track.Solo));
+            MessageBus.Current.SendMessage(new TracksSoloEvent(track.TrackNo, !track.Solo, false));
+        }
+
+        public void SoloAdditionally() {
+            MessageBus.Current.SendMessage(new TracksSoloEvent(track.TrackNo, !track.Solo, true));
+        }
+
+        public void UnsoloAll() {
+            MessageBus.Current.SendMessage(new TracksSoloEvent(-1, false, false));
+        }
+
+        public void ToggleMute() {
+            if (!Mute) {
+                Mute = true;
+            } else {
+                Mute = false;
+            }
+            this.RaisePropertyChanged(nameof(Mute));
+            JudgeMuted();
+        }
+        public void ToggleMute(bool mute) {
+            if (mute) {
+                Mute = true;
+            } else {
+                Mute = false;
+            }
+            this.RaisePropertyChanged(nameof(Mute));
+            JudgeMuted();
+        }
+
+        public void MuteOnly() {
+            MessageBus.Current.SendMessage(new TracksMuteEvent(-1, false));
+            ToggleMute();
+        }
+
+        public void MuteAllOthers() {
+            MessageBus.Current.SendMessage(new TracksMuteEvent(-1, true));
+            ToggleMute();
+        }
+
+        public void UnmuteAll() {
+            MessageBus.Current.SendMessage(new TracksMuteEvent(-1, false));
+        }
+
+        public void JudgeMuted() {
+            if (Solo) {
+                Muted = false;
+            } else if (Mute) {
+                Muted = true;
+            } else if (DocManager.Inst.Project.SoloTrackExist) {
+                Muted = true;
+            } else {
+                Muted = false;
+            }
+            this.RaisePropertyChanged(nameof(Muted));
         }
 
         private bool TryChangePhonemizer(string phonemizerName) {
@@ -182,19 +248,31 @@ namespace OpenUtau.App.ViewModels {
             items.AddRange(Preferences.Default.RecentSingers
                 .Select(id => SingerManager.Inst.Singers.Values.FirstOrDefault(singer => singer.Id == id))
                 .OfType<USinger>()
-                .LocalizedOrderBy(singer => singer.Name)
-                .Select(singer => new MenuItemViewModel() {
-                    Header = singer.Name,
+                .Select(singer => new SingerMenuItemViewModel() {
+                    Header = singer.LocalizedName,
                     Command = SelectSingerCommand,
                     CommandParameter = singer,
                 }));
+            items.Add(new SingerMenuItemViewModel() {
+                Header = "Favourites ...",
+                Items = Preferences.Default.FavoriteSingers
+                    .Select(id => SingerManager.Inst.Singers.Values.FirstOrDefault(singer => singer.Id == id))
+                    .OfType<USinger>()
+                    .LocalizedOrderBy(singer => singer.LocalizedName)
+                    .Select(singer => new SingerMenuItemViewModel() {
+                        Header = singer.LocalizedName,
+                        Command = SelectSingerCommand,
+                        CommandParameter = singer,
+                    }).ToArray(),
+            });
+
             var keys = SingerManager.Inst.SingerGroups.Keys.OrderBy(k => k);
             foreach (var key in keys) {
-                items.Add(new MenuItemViewModel() {
+                items.Add(new SingerMenuItemViewModel() {
                     Header = $"{key} ...",
                     Items = SingerManager.Inst.SingerGroups[key]
-                        .Select(singer => new MenuItemViewModel() {
-                            Header = singer.Name,
+                        .Select(singer => new SingerMenuItemViewModel() {
+                            Header = singer.LocalizedName,
                             Command = SelectSingerCommand,
                             CommandParameter = singer,
                         }).ToArray(),
@@ -202,6 +280,16 @@ namespace OpenUtau.App.ViewModels {
             }
             SingerMenuItems = items;
             this.RaisePropertyChanged(nameof(SingerMenuItems));
+        }
+
+        public string GetPhonemizerGroupHeader(string key){
+            if(key is null){
+                return "General";
+            }
+            if(ThemeManager.TryGetString($"languages.{key.ToLowerInvariant()}", out var value)){
+                return $"{key}: {value}";
+            }
+            return key;
         }
 
         public void RefreshPhonemizers() {
@@ -220,8 +308,9 @@ namespace OpenUtau.App.ViewModels {
             items.Add(new MenuItemViewModel() {
                 Header = $"{ThemeManager.GetString("tracks.more")} ...",
                 Items = DocManager.Inst.PhonemizerFactories.GroupBy(factory => factory.language)
+                .OrderBy(group => group.Key)
                 .Select(group => new MenuItemViewModel() {
-                    Header = (group.Key is null) ? "General" : group.Key,
+                    Header = GetPhonemizerGroupHeader(group.Key),
                     Items = group.Select(factory => new MenuItemViewModel() {
                         Header = factory.ToString(),
                         Command = SelectPhonemizerCommand,
@@ -270,6 +359,7 @@ namespace OpenUtau.App.ViewModels {
             this.RaisePropertyChanged(nameof(PhonemizerTag));
             this.RaisePropertyChanged(nameof(Renderer));
             this.RaisePropertyChanged(nameof(Mute));
+            this.RaisePropertyChanged(nameof(Muted));
             this.RaisePropertyChanged(nameof(Solo));
             this.RaisePropertyChanged(nameof(Volume));
             this.RaisePropertyChanged(nameof(Pan));
@@ -317,6 +407,19 @@ namespace OpenUtau.App.ViewModels {
             }
         }
 
+        public async void SelectTrackColor() {
+            var dialog = new TrackColorDialog();
+            dialog.DataContext = new TrackColorViewModel(track);
+            
+            if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && desktop.MainWindow != null) {
+                await dialog.ShowDialog(desktop.MainWindow);
+                TrackAccentColor = ThemeManager.GetTrackColor(track.TrackColor).AccentColor;
+                TrackColor = Preferences.Default.UseTrackColor
+                ? ThemeManager.GetTrackColor(track.TrackColor)
+                : ThemeManager.GetTrackColor("Blue");
+            }
+        }
+
         public void Duplicate() {
             DocManager.Inst.StartUndoGroup();
             //TODO
@@ -326,9 +429,11 @@ namespace OpenUtau.App.ViewModels {
                 Phonemizer = track.Phonemizer,
                 RendererSettings = track.RendererSettings,
                 Mute = track.Mute,
+                Muted = track.Muted,
                 Solo = track.Solo,
                 Volume = track.Volume,
                 Pan = track.Pan,
+                TrackColor = track.TrackColor
             };
             DocManager.Inst.ExecuteCmd(new AddTrackCommand(DocManager.Inst.Project, newTrack));
             var parts = DocManager.Inst.Project.parts
@@ -350,11 +455,19 @@ namespace OpenUtau.App.ViewModels {
                 Phonemizer = track.Phonemizer,
                 RendererSettings = track.RendererSettings,
                 Mute = track.Mute,
+                Muted = track.Muted,
                 Solo = track.Solo,
                 Volume = track.Volume,
                 Pan = track.Pan,
+                TrackColor = track.TrackColor
             }));
             DocManager.Inst.EndUndoGroup();
+        }
+
+        public void VoiceColorRemapping() {
+            if (track.Singer != null && track.Singer.Found && track.VoiceColorExp != null) {
+                DocManager.Inst.ExecuteCmd(new VoiceColorRemappingNotification(track.TrackNo, false));
+            }
         }
     }
 }

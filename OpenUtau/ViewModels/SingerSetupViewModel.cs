@@ -30,7 +30,7 @@ namespace OpenUtau.App.ViewModels {
         [Reactive] public Encoding ArchiveEncoding { get; set; }
         [Reactive] public Encoding TextEncoding { get; set; }
         [Reactive] public bool MissingInfo { get; set; }
-        public string[] SingerTypes { get; set; } = new[] { "utau", "enunu" };
+        public string[] SingerTypes { get; set; } = new[] { "utau", "enunu", "diffsinger" };
         [Reactive] public string SingerType { get; set; }
 
         private ObservableCollectionExtended<string> textItems;
@@ -91,7 +91,7 @@ namespace OpenUtau.App.ViewModels {
 
         private VoicebankConfig? LoadCharacterYaml(string archiveFilePath) {
             using (var archive = ArchiveFactory.Open(archiveFilePath)) {
-                var entry = archive.Entries.FirstOrDefault(e => e.Key.EndsWith("character.yaml"));
+                var entry = archive.Entries.FirstOrDefault(e => Path.GetFileName(e.Key)=="character.yaml");
                 if (entry == null) {
                     return null;
                 }

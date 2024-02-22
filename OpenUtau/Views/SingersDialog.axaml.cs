@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -6,9 +7,11 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
+using NAudio.Wave;
 using NWaves.Audio;
 using OpenUtau.App.ViewModels;
 using OpenUtau.Core;
+using OpenUtau.Core.Format;
 using OpenUtau.Core.Ustx;
 using Serilog;
 
@@ -27,6 +30,11 @@ namespace OpenUtau.App.Views {
         protected override void OnClosed(EventArgs e) {
             base.OnClosed(e);
             DocManager.Inst.RemoveSubscriber(this);
+            var playBack = PlaybackManager.Inst.AudioOutput;
+            var playbackState = playBack.PlaybackState;
+            if (playbackState == PlaybackState.Playing) {
+                playBack.Stop();
+            }
         }
 
         void OnSingerMenuButton(object sender, RoutedEventArgs args) {
@@ -46,6 +54,32 @@ namespace OpenUtau.App.Views {
             }
         }
 
+        async void OnSetImage(object sender, RoutedEventArgs args) {
+            var viewModel = (DataContext as SingersViewModel)!;
+            if (viewModel.Singer == null) {
+                return;
+            }
+            var file = await FilePicker.OpenFile(
+                this, "singers.setimage",
+                viewModel.Singer.Location,
+                FilePickerFileTypes.ImageAll);
+            if (file == null) {
+                return;
+            }
+            try {
+                //If the image isn't inside the voicebank, copy it in.
+                if (!file.StartsWith(viewModel.Singer.Location)) {
+                    string newFile = Path.Combine(viewModel.Singer.Location, Path.GetFileName(file));
+                    File.Copy(file, newFile, true);
+                    file = newFile;
+                }
+                viewModel.SetImage(Path.GetRelativePath(viewModel.Singer.Location, file));
+            } catch (Exception e) {
+                Log.Error(e, "Failed to set image");
+                _ = await MessageBox.ShowError(this, e);
+            }
+        }
+
         async void OnSetPortrait(object sender, RoutedEventArgs args) {
             var viewModel = (DataContext as SingersViewModel)!;
             if (viewModel.Singer == null) {
@@ -59,11 +93,22 @@ namespace OpenUtau.App.Views {
                 return;
             }
             try {
+                //If the image isn't inside the voicebank, copy it in.
+                if (!file.StartsWith(viewModel.Singer.Location)) {
+                    string newFile = Path.Combine(viewModel.Singer.Location, Path.GetFileName(file));
+                    File.Copy(file, newFile, true);
+                    file = newFile;
+                }
                 viewModel.SetPortrait(Path.GetRelativePath(viewModel.Singer.Location, file));
             } catch (Exception e) {
                 Log.Error(e, "Failed to set portrait");
                 _ = await MessageBox.ShowError(this, e);
             }
+        }
+
+        void OnSetUseFilenameAsAlias(object sender, RoutedEventArgs args) {
+            var viewModel = (DataContext as SingersViewModel)!;
+            viewModel.SetUseFilenameAsAlias();
         }
 
         async void OnEditSubbanksButton(object sender, RoutedEventArgs args) {
@@ -74,11 +119,21 @@ namespace OpenUtau.App.Views {
             var dialog = new EditSubbanksDialog();
             dialog.ViewModel.SetSinger(viewModel.Singer!);
             dialog.RefreshSinger = () => viewModel.RefreshSinger();
+            var playBack = PlaybackManager.Inst.AudioOutput;
+            var playbackState = playBack.PlaybackState;
+            if (playbackState == PlaybackState.Playing) {
+                playBack.Stop();
+            }
             await dialog.ShowDialog(this);
         }
 
         void OnSelectedSingerChanged(object sender, SelectionChangedEventArgs e) {
             OtoPlot.WaveFile = null;
+            var playBack = PlaybackManager.Inst.AudioOutput;
+            var playbackState = playBack.PlaybackState;
+            if (playbackState == PlaybackState.Playing) {
+                playBack.Stop();
+            }
         }
 
         void OnSelectedOtoChanged(object sender, SelectionChangedEventArgs e) {
@@ -159,6 +214,77 @@ namespace OpenUtau.App.Views {
             }
         }
 
+        void OnOpenReadme(object sender, RoutedEventArgs e) {
+            var viewModel = (DataContext as SingersViewModel)!;
+            if (viewModel.Singer != null) {
+                var readme = Path.Join(viewModel.Singer.Location, "readme.txt");
+                if (File.Exists(readme)) {
+                    var p = new Process();
+                    p.StartInfo = new ProcessStartInfo(readme) {
+                        UseShellExecute = true
+                    };
+                    p.Start();
+                } else {
+                    MessageBox.Show(
+                        this,
+                        ThemeManager.GetString("singers.readme.notfound"),
+                        ThemeManager.GetString("errors.caption"),
+                        MessageBox.MessageBoxButtons.Ok);
+                    return;
+                }
+            }
+        }
+
+        string? FindSample(USinger singer){
+            var sample = singer.Sample;
+            if(sample!=null && File.Exists(sample)){
+                return sample;
+            } else if (singer.SingerType == USingerType.Classic) {
+                var path = singer.Location;
+                if(!Directory.Exists(path)){
+                    return null;
+                }
+                string[] files = Directory.EnumerateFiles(path, "*.wav", SearchOption.AllDirectories)
+                        .Union(Directory.EnumerateFiles(path, "*.mp3", SearchOption.AllDirectories))
+                        .Union(Directory.EnumerateFiles(path, "*.flac", SearchOption.AllDirectories))
+                        .Union(Directory.EnumerateFiles(path, "*.aiff", SearchOption.AllDirectories))
+                        .Union(Directory.EnumerateFiles(path, "*.ogg", SearchOption.AllDirectories))
+                        .Union(Directory.EnumerateFiles(path, "*.opus", SearchOption.AllDirectories))
+                        .ToArray();
+                if(files.Length==0){
+                    return null;
+                }
+                Random rnd = new Random(Guid.NewGuid().GetHashCode());
+                int choice = rnd.Next(0, files.Length - 1);
+                string soundFile = files[choice];
+                return soundFile;
+            }
+            return null;
+        }
+
+        public void OnPlaySample(object sender, RoutedEventArgs e) {
+            var viewModel = (DataContext as SingersViewModel)!;
+            var playBack = PlaybackManager.Inst.AudioOutput;
+            var playbackState = playBack.PlaybackState;
+            if (viewModel.Singer != null) {
+                var sample = FindSample(viewModel.Singer);
+                if(sample == null){
+                    return;
+                }
+                try{
+                    var playSound = Wave.OpenFile(sample);
+                    playBack.Init(playSound.ToSampleProvider());
+                } catch (Exception ex) {
+                    Log.Error(ex, $"Failed to load sample {sample}.");
+                    return;
+                }
+                playBack.Play();
+                if (playbackState == PlaybackState.Playing) {
+                    playBack.Stop();
+                }
+            }
+        }
+
         void RegenFrq(object sender, RoutedEventArgs args) {
             if (OtoGrid != null &&
                 sender is Control control &&
@@ -227,6 +353,10 @@ namespace OpenUtau.App.Views {
         }
 
         Tuple<int, double[]>? LoadF0(string wavPath) {
+            if(String.IsNullOrEmpty(wavPath)){
+                //If the wav path is null (machine learning voicebank), return null.
+                return null;
+            }
             string frqFile = Classic.VoicebankFiles.GetFrqFile(wavPath);
             if (!File.Exists(frqFile)) {
                 return null;
@@ -300,7 +430,13 @@ namespace OpenUtau.App.Views {
         #region ICmdSubscriber
 
         public void OnNext(UCommand cmd, bool isUndo) {
-            if (cmd is OtoChangedNotification otoChanged) {
+            if (cmd is LoadingNotification loadingNotif && loadingNotif.window == typeof(SingersDialog)) {
+                if (loadingNotif.startLoading) {
+                    MessageBox.ShowLoading(this);
+                } else {
+                    MessageBox.CloseLoading();
+                }
+            } else if (cmd is OtoChangedNotification otoChanged) {
                 var viewModel = DataContext as SingersViewModel;
                 if (viewModel == null) {
                     return;
@@ -314,7 +450,9 @@ namespace OpenUtau.App.Views {
                 if (viewModel == null) {
                     return;
                 }
-                viewModel.GotoOto(editOto.singer, editOto.oto);
+                if (editOto.singer != null) {
+                    viewModel.GotoOto(editOto.singer, editOto.oto);
+                }
                 OtoGrid?.ScrollIntoView(OtoGrid.SelectedItem, null);
                 Activate();
             }
